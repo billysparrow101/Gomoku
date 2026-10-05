@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gomoku · 五目並べ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#15110d;
+    --ink2:#1d1813;
+    --line:rgba(38,24,12,.78);
+    --accent:#c1452f;       /* vermilion 朱 */
+    --gold:#cBA45a;
+    --gold2:#c9a24b;
+    --ivory:#f4ece0;
+    --muted:#a89881;
+    --paper:#efe6d6;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:"Zen Kaku Gothic New",sans-serif;
+    color:var(--paper);
+    background:
+      radial-gradient(120% 90% at 50% -10%, #2a2118 0%, rgba(42,33,24,0) 55%),
+      radial-gradient(100% 80% at 50% 120%, #241c14 0%, rgba(36,28,20,0) 60%),
+      var(--ink);
+    min-height:100%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:28px 16px 48px;
+    position:relative;
+    overflow-x:hidden;
+  }
+  /* faint grain overlay */
+  /* Faint grain. No mix-blend-mode + fixed layer: that combo makes iOS/WebKit
+     drop the GPU-composited <canvas> underneath (board renders blank). */
+  body::after{
+    content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.04;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  header{text-align:center;margin-bottom:22px;animation:rise .8s ease both}
+  .kanji{
+    font-family:"Shippori Mincho B1",serif;
+    font-weight:700;
+    color:var(--accent);
+    font-size:clamp(34px,9vw,52px);
+    letter-spacing:.18em;
+    line-height:1;
+    text-shadow:0 2px 24px rgba(193,69,47,.35);
+  }
+  .title{
+    font-family:"Shippori Mincho B1",serif;
+    font-weight:500;
+    font-size:clamp(13px,3.4vw,16px);
+    letter-spacing:.62em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-top:12px;
+    padding-left:.62em;
+  }
+
+  .panel{width:100%;max-width:560px;animation:rise .9s ease .08s both}
+
+  .controls{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;
+    margin-bottom:18px;
+  }
+  .group{display:flex;flex-direction:column;gap:6px;align-items:center}
+  .group .lbl{font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--muted)}
+
+  .seg{display:flex;border:1px solid rgba(201,162,75,.28);border-radius:999px;overflow:hidden;background:rgba(0,0,0,.25)}
+  .seg button{
+    font-family:inherit;background:transparent;border:none;color:var(--muted);
+    padding:8px 15px;font-size:12.5px;letter-spacing:.06em;cursor:pointer;
+    transition:color .25s,background .25s;white-space:nowrap;
+  }
+  .seg button.active{color:var(--ink);background:linear-gradient(180deg,var(--gold),var(--gold2));font-weight:700}
+  .seg button:not(.active):hover{color:var(--paper)}
+
+  .btn{
+    font-family:inherit;cursor:pointer;border-radius:999px;font-size:12.5px;letter-spacing:.08em;
+    padding:9px 18px;transition:transform .15s,background .25s,color .25s,border-color .25s;
+  }
+  .btn:active{transform:translateY(1px)}
+  .btn-primary{background:var(--accent);border:1px solid var(--accent);color:#fff;font-weight:700}
+  .btn-primary:hover{background:#d2503a}
+  .btn-ghost{background:transparent;border:1px solid rgba(201,162,75,.35);color:var(--muted)}
+  .btn-ghost:hover{color:var(--paper);border-color:var(--gold)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+
+  .board-wrap{
+    position:relative;width:100%;display:flex;justify-content:center;
+    filter:drop-shadow(0 24px 40px rgba(0,0,0,.55));
+  }
+  canvas{border-radius:10px;cursor:pointer;touch-action:none;-webkit-tap-highlight-color:transparent}
+  canvas.locked{cursor:default}
+
+  .status{
+    margin-top:20px;display:flex;align-items:center;justify-content:center;gap:12px;
+    min-height:34px;text-align:center;
+  }
+  .dot{width:13px;height:13px;border-radius:50%;flex:0 0 auto;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .dot.black{background:radial-gradient(circle at 35% 30%,#5a5048,#15120e)}
+  .dot.white{background:radial-gradient(circle at 35% 30%,#fff,#cfc4b2)}
+  .status .msg{font-size:16px;letter-spacing:.04em}
+  .status .msg b{font-family:"Shippori Mincho B1",serif}
+  .thinking .dot{animation:pulse 1s ease-in-out infinite}
+
+  .win .msg b{color:var(--gold)}
+  .lose .msg b{color:var(--accent)}
+
+  .hint{margin-top:26px;font-size:11.5px;color:rgba(168,152,129,.7);letter-spacing:.08em;text-align:center;max-width:480px;line-height:1.7}
+
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.78)}}
+</style>
+</head>
+<body>
+  <header>
+    <div class="kanji">五目並べ</div>
+    <div class="title">Gomoku</div>
+  </header>
+
+  <div class="panel">
+    <div class="controls">
+      <div class="group">
+        <span class="lbl">Opponent</span>
+        <div class="seg" id="diff">
+          <button data-d="easy">Easy</button>
+          <button data-d="medium" class="active">Medium</button>
+          <button data-d="hard">Hard</button>
+        </div>
+      </div>
+      <div class="group">
+        <span class="lbl">You play</span>
+        <div class="seg" id="side">
+          <button data-s="black" class="active">Black · first</button>
+          <button data-s="white">White</button>
+        </div>
+      </div>
+      <div class="group">
+        <span class="lbl">&nbsp;</span>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost" id="undo">Undo</button>
+          <button class="btn btn-primary" id="newgame">New game</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="board-wrap">
+      <canvas id="board"></canvas>
+    </div>
+
+    <div class="status" id="status">
+      <span class="dot black"></span>
+      <span class="msg">Your move — <b>place a stone</b></span>
+    </div>
+
+    <div class="hint">Get five of your stones in an unbroken row — horizontal, vertical, or diagonal — before the AI does.</div>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* ---------- constants ---------- */
+  const N = 15;
+  const EMPTY = 0, BLACK = 1, WHITE = 2;
+  const DIRS = [[0,1],[1,0],[1,1],[1,-1]];
+
+  /* ---------- state ---------- */
+  let board, current, gameOver, lastMove, thinking, history;
+  let anim = null, rafId = 0;
+  let humanColor = BLACK, aiColor = WHITE;
+  let difficulty = "medium";
+  let hoverCell = null;
+
+  /* ---------- DOM ---------- */
+  const canvas = document.getElementById("board");
+  const ctx = canvas.getContext("2d");
+  const statusEl = document.getElementById("status");
+
+  /* ---------- geometry ---------- */
+  let size, margin, cell, radius, dpr, grain = [];
+
+  function layout(){
+    const wrap = canvas.parentElement;
+    const avail = Math.min(wrap.clientWidth || 520, 560);
+    size = Math.max(280, Math.floor(avail));
+    margin = size / 16;
+    cell = (size - 2 * margin) / (N - 1);
+    radius = cell * 0.44;
+    dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    canvas.style.width = size + "px";
+    canvas.style.height = size + "px";
+    canvas.width = Math.floor(size * dpr);
+    canvas.height = Math.floor(size * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // precompute wood grain strokes once per layout
+    grain = [];
+    for (let i = 0; i < 26; i++){
+      grain.push({
+        y: Math.random() * size,
+        amp: 4 + Math.random() * 14,
+        w: 0.6 + Math.random() * 1.2,
+        a: 0.04 + Math.random() * 0.06,
+        ph: Math.random() * Math.PI * 2
+      });
+    }
+    draw();
+  }
+
+  const px = c => margin + c * cell;
+  const py = r => margin + r * cell;
+
+  /* ---------- drawing ---------- */
+  function drawBoardBase(){
+    ctx.clearRect(0, 0, size, size);
+
+    // wood board
+    const g = ctx.createLinearGradient(0, 0, size, size);
+    g.addColorStop(0, "#e3b878");
+    g.addColorStop(0.5, "#d09c54");
+    g.addColorStop(1, "#bd8540");
+    roundRect(0, 0, size, size, 10);
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    // grain
+    ctx.save();
+    roundRect(0, 0, size, size, 10);
+    ctx.clip();
+    ctx.lineWidth = 1;
+    for (const s of grain){
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(120,72,28,${s.a})`;
+      ctx.lineWidth = s.w;
+      for (let x = 0; x <= size; x += 6){
+        const y = s.y + Math.sin(x / 90 + s.ph) * s.amp;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    // inner edge vignette
+    const vg = ctx.createRadialGradient(size/2, size/2, size*0.3, size/2, size/2, size*0.72);
+    vg.addColorStop(0, "rgba(0,0,0,0)");
+    vg.addColorStop(1, "rgba(60,30,8,0.22)");
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, size, size);
+    ctx.restore();
+
+    // grid
+    ctx.strokeStyle = getCss("--line");
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < N; i++){
+      ctx.moveTo(px(0), py(i)); ctx.lineTo(px(N-1), py(i));
+      ctx.moveTo(px(i), py(0)); ctx.lineTo(px(i), py(N-1));
+    }
+    ctx.stroke();
+
+    // star points (hoshi)
+    const star = [3, 7, 11];
+    ctx.fillStyle = "rgba(38,24,12,.85)";
+    for (const r of star) for (const c of star){
+      ctx.beginPath();
+      ctx.arc(px(c), py(r), cell * 0.07, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function draw(){
+    if (anim) return;          // victory animation owns the canvas
+    drawBoardBase();
+
+    // stones
+    for (let r = 0; r < N; r++)
+      for (let c = 0; c < N; c++)
+        if (board[r][c]) drawStone(r, c, board[r][c], 1);
+
+    // hover ghost
+    if (hoverCell && !gameOver && !thinking && current === humanColor){
+      const [r, c] = hoverCell;
+      if (board[r][c] === EMPTY) drawStone(r, c, humanColor, 0.32);
+    }
+
+    // last move marker
+    if (lastMove){
+      ctx.beginPath();
+      ctx.arc(px(lastMove[1]), py(lastMove[0]), radius * 0.28, 0, Math.PI * 2);
+      ctx.fillStyle = getCss("--accent");
+      ctx.fill();
+    }
+  }
+
+  function drawStone(r, c, color, alpha){
+    drawStoneXY(px(c), py(r), color, alpha, radius);
+  }
+
+  function drawStoneXY(x, y, color, alpha, rad){
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    // shadow
+    if (alpha === 1){
+      ctx.beginPath();
+      ctx.arc(x + rad*0.12, y + rad*0.16, rad, 0, Math.PI*2);
+      ctx.fillStyle = "rgba(0,0,0,.28)";
+      ctx.fill();
+    }
+    const grad = ctx.createRadialGradient(
+      x - rad*0.35, y - rad*0.4, rad*0.1,
+      x, y, rad);
+    if (color === BLACK){
+      grad.addColorStop(0, "#6a5f54");
+      grad.addColorStop(0.4, "#2b2620");
+      grad.addColorStop(1, "#0d0b09");
+    } else {
+      grad.addColorStop(0, "#ffffff");
+      grad.addColorStop(0.6, "#f1e8d9");
+      grad.addColorStop(1, "#cdbfa9");
+    }
+    ctx.beginPath();
+    ctx.arc(x, y, rad, 0, Math.PI*2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    // specular highlight
+    ctx.beginPath();
+    ctx.arc(x - rad*0.3, y - rad*0.35, rad*0.22, 0, Math.PI*2);
+    ctx.fillStyle = color === BLACK ? "rgba(255,255,255,.18)" : "rgba(255,255,255,.65)";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function roundRect(x, y, w, h, r){
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r);
+    ctx.arcTo(x, y, x+w, y, r);
+    ctx.closePath();
+  }
+
+  function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+  /* ---------- game flow ---------- */
+  function newGame(){
+    cancelAnimationFrame(rafId);
+    anim = null;
+    board = Array.from({length:N}, () => new Array(N).fill(EMPTY));
+    current = BLACK;          // black always moves first
+    gameOver = false;
+    thinking = false;
+    lastMove = null;
+    history = [];
+    hoverCell = null;
+    draw();
+    setStatus();
+    // if AI is black, it opens
+    if (current === aiColor) scheduleAI();
+  }
+
+  function place(r, c, color){
+    board[r][c] = color;
+    lastMove = [r, c];
+    history.push([r, c]);
+  }
+
+  function humanMove(r, c){
+    if (gameOver || thinking || current !== humanColor) return;
+    if (board[r][c] !== EMPTY) return;
+    place(r, c, humanColor);
+    draw();
+    if (finish(r, c, humanColor)) return;
+    current = aiColor;
+    setStatus();
+    scheduleAI();
+  }
+
+  function scheduleAI(){
+    thinking = true;
+    setStatus();
+    // defer so the UI can repaint the "thinking" state before the search blocks
+    setTimeout(() => {
+      const mv = chooseMove();
+      thinking = false;
+      if (!mv){ gameOver = true; setStatus("draw"); return; }
+      place(mv[0], mv[1], aiColor);
+      draw();
+      if (finish(mv[0], mv[1], aiColor)) return;
+      current = humanColor;
+      setStatus();
+    }, 60);
+  }
+
+  function finish(r, c, color){
+    if (checkWin(board, r, c, color)){
+      gameOver = true;
+      setStatus(color === humanColor ? "win" : "lose");
+      startVictory(color, getWinLine(board, r, c, color));
+      return true;
+    }
+    if (history.length === N * N){
+      gameOver = true;
+      setStatus("draw");
+      return true;
+    }
+    return false;
+  }
+
+  /* ---------- victory animation ---------- */
+  function getWinLine(b, r, c, color){
+    for (const [dr, dc] of DIRS){
+      const cells = [[r, c]];
+      let rr = r+dr, cc = c+dc;
+      while (inB(rr,cc) && b[rr][cc] === color){ cells.push([rr,cc]); rr+=dr; cc+=dc; }
+      rr = r-dr; cc = c-dc;
+      while (inB(rr,cc) && b[rr][cc] === color){ cells.unshift([rr,cc]); rr-=dr; cc-=dc; }
+      if (cells.length >= 5) return cells;
+    }
+    return [[r, c]];
+  }
+
+  function startVictory(winColor, line){
+    cancelAnimationFrame(rafId);
+    const loseColor = winColor === BLACK ? WHITE : BLACK;
+    const runnerKeys = new Set(line.map(([r,c]) => r + "_" + c));
+    const statics = [], bombs = [], runners = [];
+
+    for (let r = 0; r < N; r++){
+      for (let c = 0; c < N; c++){
+        const v = board[r][c];
+        if (!v) continue;
+        if (v === loseColor){
+          bombs.push({ x: px(c), y: py(r), color: loseColor,
+                       delay: 40 + Math.random() * 470, fired: false });
+        } else if (runnerKeys.has(r + "_" + c)){
+          runners.push(makeRunner(px(c), py(r), winColor, runners.length));
+        } else {
+          statics.push([r, c, v]);
+        }
+      }
+    }
+    anim = { statics, bombs, runners, particles: [], flashes: [],
+             winColor, loseColor, start: performance.now(), last: performance.now() };
+    rafId = requestAnimationFrame(victoryLoop);
+  }
+
+  function makeRunner(x, y, color, idx){
+    const dir = x < size / 2 ? -1 : 1;     // run off the nearer side
+    return {
+      x, y, baseY: y, color, dir,
+      vx: 0,
+      legPhase: Math.random() * Math.PI * 2,
+      grow: 0,
+      sprout: 620 + (idx || 0) * 90,        // legs appear AFTER the blasts
+      runAt: 1050 + (idx || 0) * 110,       // then a beat, then bolt
+      crouch: 0,
+      born: performance.now(),
+      gone: false
+    };
+  }
+
+  function spawnShards(particles, x, y, color){
+    const n = 13 + (Math.random() * 6 | 0);
+    for (let i = 0; i < n; i++){
+      const a = Math.random() * Math.PI * 2;
+      const sp = 1.6 + Math.random() * 5.2;
+      particles.push({
+        x, y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 2.4,        // upward bias
+        g: 0.17,
+        size: radius * (0.16 + Math.random() * 0.34),
+        rot: Math.random() * Math.PI,
+        vr: (Math.random() - 0.5) * 0.5,
+        color,
+        shade: Math.random(),
+        life: 42 + Math.random() * 34,
+        maxLife: 1
+      });
+    }
+    for (const p of particles) if (p.maxLife === 1) p.maxLife = p.life;
+  }
+
+  function victoryLoop(now){
+    if (!anim) return;
+    try {
+      victoryFrame(now);
+    } catch (e){
+      anim = null;          // never leave the board frozen
+      draw();
+      return;
+    }
+  }
+
+  function victoryFrame(now){
+    const t = now - anim.start;
+    drawBoardBase();
+
+    // surviving (non-winning) stones of the winner's colour stay put
+    for (const [r, c, col] of anim.statics) drawStone(r, c, col, 1);
+
+    // detonate losing stones on their staggered timers
+    for (const b of anim.bombs){
+      if (!b.fired && t >= b.delay){
+        b.fired = true;
+        spawnShards(anim.particles, b.x, b.y, b.color);
+        anim.flashes.push({ x: b.x, y: b.y, age: 0 });
+      }
+    }
+
+    // expanding flash rings
+    for (const f of anim.flashes){
+      f.age++;
+      const k = f.age / 16;
+      if (k <= 1){
+        ctx.save();
+        ctx.globalAlpha = (1 - k) * 0.7;
+        ctx.lineWidth = 2.5 * (1 - k) + 0.5;
+        ctx.strokeStyle = "#ffe6a8";
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, radius * (0.4 + k * 2.2), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    anim.flashes = anim.flashes.filter(f => f.age <= 16);
+
+    // shards + dust
+    for (const p of anim.particles){
+      if (p.life <= 0) continue;
+      p.vy += p.g; p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.life--;
+      const al = Math.max(0, p.life / p.maxLife);
+      ctx.save();
+      if (p.color === -1){                       // dust puff
+        ctx.globalAlpha = al * 0.5;
+        ctx.fillStyle = "#b98a52";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        continue;
+      }
+      ctx.globalAlpha = al;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      let col;
+      if (p.color === BLACK) col = `rgb(${28+p.shade*46|0},${24+p.shade*40|0},${20+p.shade*34|0})`;
+      else col = `rgb(${228+p.shade*27|0},${216+p.shade*30|0},${196+p.shade*40|0})`;
+      ctx.fillStyle = col;
+      ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+      ctx.restore();
+    }
+    anim.particles = anim.particles.filter(p => p.life > 0 && p.y < size + 60);
+
+    // runners — sprout legs after the blast, crouch, then bolt off the board
+    let runnersLeft = false;
+    for (const rn of anim.runners){
+      if (rn.gone) continue;
+      const age = now - rn.born;
+
+      if (age < rn.sprout){
+        rn.grow = 0;                                   // still a plain stone, blasts going off
+      } else if (age < rn.runAt){
+        rn.grow = Math.min(1, (age - rn.sprout) / (rn.runAt - rn.sprout)); // legs grow in
+        const c = (age - rn.sprout) / (rn.runAt - rn.sprout);
+        rn.crouch = Math.sin(c * Math.PI) * 0.5;       // little anticipatory bounce
+        rn.legPhase += 0.12;                            // jog in place
+      } else {
+        rn.grow = 1;
+        rn.crouch = 0;
+        rn.vx += rn.dir * 0.32;                         // ease into a sprint
+        if (Math.abs(rn.vx) > 6.5) rn.vx = rn.dir * 6.5;
+        rn.x += rn.vx;
+        rn.legPhase += 0.32 + Math.abs(rn.vx) * 0.06;
+        // kick up dust on foot-strikes
+        if (Math.random() < 0.4){
+          anim.particles.push({
+            x: rn.x - rn.dir * radius * 0.5, y: rn.baseY + radius * 0.55,
+            vx: -rn.dir * (0.4 + Math.random()), vy: -Math.random() * 0.8,
+            g: 0.05, size: radius * (0.1 + Math.random() * 0.18),
+            rot: 0, vr: 0, color: -1, shade: Math.random(),
+            life: 14 + Math.random() * 10, maxLife: 1
+          });
+          const d = anim.particles[anim.particles.length - 1];
+          d.maxLife = d.life;
+        }
+      }
+      drawRunner(rn);
+      if (rn.x < -radius * 3 || rn.x > size + radius * 3) rn.gone = true;
+      else runnersLeft = true;
+    }
+
+    anim.last = now;
+    const shardsLeft = anim.particles.length > 0;
+    const bombsLeft = anim.bombs.some(b => !b.fired);
+    if (runnersLeft || shardsLeft || bombsLeft || anim.flashes.length){
+      rafId = requestAnimationFrame(victoryLoop);
+    } else {
+      anim = null;            // hand the canvas back; board is now cleared of the action
+      draw();
+    }
+  }
+
+  function drawRunner(rn){
+    const rad = radius;
+    const running = rn.grow >= 1 && Math.abs(rn.vx) > 0.1;
+    const hop = running ? Math.abs(Math.sin(rn.legPhase)) * rad * 0.42 : 0;
+    const crouch = (rn.crouch || 0) * rad * 0.5;
+    const x = rn.x, y = rn.baseY - hop + crouch;
+    const swing = Math.sin(rn.legPhase) * rad * 0.7 * rn.grow;
+    const legLen = rad * 1.05 * rn.grow;
+
+    // legs (behind stone)
+    ctx.save();
+    ctx.strokeStyle = rn.color === BLACK ? "#0e0c0a" : "#a8966b";
+    ctx.lineWidth = Math.max(2.5, rad * 0.18);
+    ctx.lineCap = "round";
+    const footY = y + rad * 0.55;
+    const feet = [];
+    for (const sgn of [-1, 1]){
+      const sw = sgn === -1 ? -swing : swing;
+      const fx = x + sgn*rad*0.3 + sw, fy = footY + legLen;
+      ctx.beginPath();
+      ctx.moveTo(x + sgn*rad*0.3, footY);
+      ctx.lineTo(fx, fy);
+      ctx.stroke();
+      feet.push([fx, fy, sgn]);
+    }
+    // little feet
+    for (const [fx, fy, sgn] of feet){
+      ctx.beginPath();
+      ctx.lineWidth = Math.max(2.5, rad * 0.18);
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(fx + rn.dir * rad * 0.28, fy);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // body
+    drawStoneXY(x, y, rn.color, 1, rad);
+
+    // googly eyes looking the way it's running
+    if (rn.grow > 0.4){
+      const ex = rad * 0.32, ey = -rad * 0.18, er = rad * 0.22;
+      const pdx = rn.dir * er * 0.45;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, (rn.grow - 0.4) / 0.6);
+      for (const sgn of [-1, 1]){
+        ctx.beginPath();
+        ctx.fillStyle = "#fff";
+        ctx.arc(x + sgn*ex*0.5 + rn.dir*rad*0.12, y + ey, er, 0, Math.PI*2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.fillStyle = "#111";
+        ctx.arc(x + sgn*ex*0.5 + rn.dir*rad*0.12 + pdx, y + ey, er*0.5, 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  function undo(){
+    if (thinking || history.length === 0) return;
+    cancelAnimationFrame(rafId);
+    anim = null;
+    // remove moves back to (and including) the player's last move
+    // so a human always undoes their own stone + the AI reply
+    const removeCount = (history.length >= 2 && !gameOver) ? 2 :
+                        (gameOver ? (history.length >= 2 ? 2 : 1) : 1);
+    for (let i = 0; i < removeCount && history.length; i++){
+      const [r, c] = history.pop();
+      board[r][c] = EMPTY;
+    }
+    lastMove = history.length ? history[history.length-1] : null;
+    gameOver = false;
+    current = humanColor;
+    draw();
+    setStatus();
+  }
+
+  function setStatus(state){
+    statusEl.className = "status";
+    let dotClass, msg;
+    if (state === "win"){
+      statusEl.classList.add("win");
+      statusEl.innerHTML = `<span class="dot ${humanColor===BLACK?'black':'white'}"></span><span class="msg">Five in a row — <b>you win.</b></span>`;
+      return;
+    }
+    if (state === "lose"){
+      statusEl.classList.add("lose");
+      statusEl.innerHTML = `<span class="dot ${aiColor===BLACK?'black':'white'}"></span><span class="msg"><b>The AI wins.</b> Try again?</span>`;
+      return;
+    }
+    if (state === "draw"){
+      statusEl.innerHTML = `<span class="msg"><b>A draw.</b> The board is full.</span>`;
+      return;
+    }
+    if (thinking){
+      statusEl.classList.add("thinking");
+      dotClass = aiColor === BLACK ? "black" : "white";
+      msg = "The AI is thinking…";
+    } else if (current === humanColor){
+      dotClass = humanColor === BLACK ? "black" : "white";
+      msg = "Your move — <b>place a stone</b>";
+    } else {
+      dotClass = aiColor === BLACK ? "black" : "white";
+      msg = "AI to move";
+    }
+    statusEl.innerHTML = `<span class="dot ${dotClass}"></span><span class="msg">${msg}</span>`;
+  }
+
+  /* ---------- win check ---------- */
+  function checkWin(b, r, c, color){
+    for (const [dr, dc] of DIRS){
+      let count = 1;
+      for (let s = 1; s < 5; s++){ const nr=r+dr*s, nc=c+dc*s; if (inB(nr,nc)&&b[nr][nc]===color) count++; else break; }
+      for (let s = 1; s < 5; s++){ const nr=r-dr*s, nc=c-dc*s; if (inB(nr,nc)&&b[nr][nc]===color) count++; else break; }
+      if (count >= 5) return true;
+    }
+    return false;
+  }
+  const inB = (r, c) => r>=0 && r<N && c>=0 && c<N;
+
+  /* ---------- evaluation ---------- */
+  function scoreRun(len, ends){
+    if (len >= 5) return 10000000;
+    if (len === 4) return ends===2 ? 500000 : ends===1 ? 80000 : 0;
+    if (len === 3) return ends===2 ? 50000  : ends===1 ? 1000  : 0;
+    if (len === 2) return ends===2 ? 500    : ends===1 ? 100   : 0;
+    if (len === 1) return ends===2 ? 10     : ends===1 ? 1     : 0;
+    return 0;
+  }
+
+  // Full-board score for one colour (counts each maximal run once, at its start).
+  function evalColor(b, color){
+    let total = 0;
+    for (let r = 0; r < N; r++){
+      for (let c = 0; c < N; c++){
+        if (b[r][c] !== color) continue;
+        for (const [dr, dc] of DIRS){
+          const pr = r-dr, pc = c-dc;
+          if (inB(pr,pc) && b[pr][pc] === color) continue; // not the start of a run
+          let len = 0, rr = r, cc = c;
+          while (inB(rr,cc) && b[rr][cc] === color){ len++; rr+=dr; cc+=dc; }
+          let ends = 0;
+          if (inB(pr,pc) && b[pr][pc] === EMPTY) ends++;
+          if (inB(rr,cc) && b[rr][cc] === EMPTY) ends++;
+          total += scoreRun(len, ends);
+        }
+      }
+    }
+    return total;
+  }
+
+  function evaluateBoard(b){
+    return evalColor(b, aiColor) - 1.05 * evalColor(b, humanColor);
+  }
+
+  // local value of a single point (for move ordering / greedy play)
+  function pointScore(b, r, c, color){
+    let s = 0;
+    for (const [dr, dc] of DIRS){
+      let len = 1, ends = 0;
+      let rr = r+dr, cc = c+dc;
+      while (inB(rr,cc) && b[rr][cc] === color){ len++; rr+=dr; cc+=dc; }
+      if (inB(rr,cc) && b[rr][cc] === EMPTY) ends++;
+      rr = r-dr; cc = c-dc;
+      while (inB(rr,cc) && b[rr][cc] === color){ len++; rr-=dr; cc-=dc; } // walk negative
+      if (inB(rr,cc) && b[rr][cc] === EMPTY) ends++;
+      s += scoreRun(len, ends);
+    }
+    return s;
+  }
+
+  function orderScore(b, r, c){
+    return pointScore(b, r, c, aiColor) + pointScore(b, r, c, humanColor) * 1.02;
+  }
+
+  /* ---------- candidate moves ---------- */
+  function candidates(b){
+    if (history.length === 0) return [[7,7]];
+    const seen = Array.from({length:N}, () => new Array(N).fill(false));
+    const out = [];
+    for (let r = 0; r < N; r++){
+      for (let c = 0; c < N; c++){
+        if (b[r][c] === EMPTY) continue;
+        for (let dr = -2; dr <= 2; dr++){
+          for (let dc = -2; dc <= 2; dc++){
+            const nr = r+dr, nc = c+dc;
+            if (inB(nr,nc) && b[nr][nc] === EMPTY && !seen[nr][nc]){
+              seen[nr][nc] = true;
+              out.push([nr, nc]);
+            }
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  /* ---------- tactical helpers ---------- */
+  function findWinningMove(b, color){
+    for (const [r, c] of candidates(b)){
+      b[r][c] = color;
+      const win = checkWin(b, r, c, color);
+      b[r][c] = EMPTY;
+      if (win) return [r, c];
+    }
+    return null;
+  }
+
+  /* ---------- minimax with alpha-beta ---------- */
+  function minimax(b, depth, alpha, beta, maximizing, K){
+    const sc = evaluateBoard(b);
+    if (depth === 0 || Math.abs(sc) >= 1000000) return sc;
+
+    let cands = candidates(b);
+    const mover = maximizing ? aiColor : humanColor;
+    cands.sort((p, q) => orderScore(b, q[0], q[1]) - orderScore(b, p[0], p[1]));
+    if (cands.length > K) cands = cands.slice(0, K);
+
+    if (maximizing){
+      let best = -Infinity;
+      for (const [r, c] of cands){
+        b[r][c] = aiColor;
+        const v = minimax(b, depth-1, alpha, beta, false, K);
+        b[r][c] = EMPTY;
+        if (v > best) best = v;
+        if (best > alpha) alpha = best;
+        if (beta <= alpha) break;
+      }
+      return best;
+    } else {
+      let best = Infinity;
+      for (const [r, c] of cands){
+        b[r][c] = humanColor;
+        const v = minimax(b, depth-1, alpha, beta, true, K);
+        b[r][c] = EMPTY;
+        if (v < best) best = v;
+        if (best < beta) beta = best;
+        if (beta <= alpha) break;
+      }
+      return best;
+    }
+  }
+
+  function searchBest(b, depth, K){
+    let cands = candidates(b);
+    cands.sort((p, q) => orderScore(b, q[0], q[1]) - orderScore(b, p[0], p[1]));
+    if (cands.length > K) cands = cands.slice(0, K);
+    let best = -Infinity, move = cands[0], alpha = -Infinity;
+    for (const [r, c] of cands){
+      b[r][c] = aiColor;
+      const v = minimax(b, depth-1, alpha, Infinity, false, K);
+      b[r][c] = EMPTY;
+      if (v > best){ best = v; move = [r, c]; }
+      if (best > alpha) alpha = best;
+    }
+    return move;
+  }
+
+  /* ---------- move selection per difficulty ---------- */
+  function chooseMove(){
+    const b = board;
+    const cands = candidates(b);
+    if (cands.length === 0) return null;
+
+    // every level: take an immediate win
+    const win = findWinningMove(b, aiColor);
+    if (win) return win;
+
+    if (difficulty === "easy"){
+      // occasionally miss a block, and play loosely
+      const block = findWinningMove(b, humanColor);
+      if (block && Math.random() < 0.65) return block;
+      if (Math.random() < 0.30) return cands[(Math.random()*cands.length)|0]; // blunder
+      // greedy, offence-leaning, pick among the top few
+      const scored = cands.map(([r,c]) => [pointScore(b,r,c,aiColor)*1.1 + pointScore(b,r,c,humanColor)*0.6, r, c]);
+      scored.sort((a,z) => z[0]-a[0]);
+      const top = scored.slice(0, 3);
+      const pick = top[(Math.random()*top.length)|0];
+      return [pick[1], pick[2]];
+    }
+
+    // medium & hard: always block an immediate loss
+    const block = findWinningMove(b, humanColor);
+    if (block) return block;
+
+    if (difficulty === "medium") return searchBest(b, 2, 12);
+    return searchBest(b, 4, 10); // hard
+  }
+
+  /* ---------- input ---------- */
+  function pointerToCell(evt){
+    const rect = canvas.getBoundingClientRect();
+    const x = (evt.clientX - rect.left) * (size / rect.width);
+    const y = (evt.clientY - rect.top) * (size / rect.height);
+    const c = Math.round((x - margin) / cell);
+    const r = Math.round((y - margin) / cell);
+    if (!inB(r, c)) return null;
+    return [r, c];
+  }
+
+  // Hover ghost only makes sense for a real pointer (mouse/trackpad/pen), not touch.
+  canvas.addEventListener("pointermove", e => {
+    if (e.pointerType === "touch") return;
+    const cellpos = pointerToCell(e);
+    const same = cellpos && hoverCell && cellpos[0]===hoverCell[0] && cellpos[1]===hoverCell[1];
+    if (!same){ hoverCell = cellpos; draw(); }
+  });
+  canvas.addEventListener("pointerleave", e => {
+    if (e.pointerType === "touch") return;
+    if (hoverCell){ hoverCell = null; draw(); }
+  });
+  // pointerdown unifies mouse + touch + pen, so taps register on iPad the same as clicks.
+  canvas.addEventListener("pointerdown", e => {
+    e.preventDefault();                       // stop scroll / synthetic click / text selection
+    const cellpos = pointerToCell(e);
+    if (e.pointerType === "touch") hoverCell = null;   // never leave a stuck ghost from a tap
+    if (cellpos) humanMove(cellpos[0], cellpos[1]);
+  });
+
+  /* ---------- controls ---------- */
+  document.getElementById("diff").addEventListener("click", e => {
+    const btn = e.target.closest("button"); if (!btn) return;
+    difficulty = btn.dataset.d;
+    [...e.currentTarget.children].forEach(b => b.classList.toggle("active", b === btn));
+  });
+
+  document.getElementById("side").addEventListener("click", e => {
+    const btn = e.target.closest("button"); if (!btn) return;
+    [...e.currentTarget.children].forEach(b => b.classList.toggle("active", b === btn));
+    humanColor = btn.dataset.s === "black" ? BLACK : WHITE;
+    aiColor = humanColor === BLACK ? WHITE : BLACK;
+    newGame();
+  });
+
+  document.getElementById("newgame").addEventListener("click", newGame);
+  document.getElementById("undo").addEventListener("click", undo);
+
+  /* ---------- boot ---------- */
+  let resizeT;
+  window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(layout, 120); });
+
+  // init
+  board = Array.from({length:N}, () => new Array(N).fill(EMPTY));
+  history = [];
+  layout();
+  newGame();
+
+  // iOS/WebKit can skip painting a canvas drawn before the first composite or
+  // reflow it blank once web fonts load. Re-layout after those moments.
+  requestAnimationFrame(layout);
+  window.addEventListener("load", layout);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
+})();
+</script>
+</body>
+</html>
